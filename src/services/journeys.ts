@@ -1,8 +1,6 @@
-import { addDoc, collection, getDocs, orderBy, query, serverTimestamp } from 'firebase/firestore';
-import { getDb } from '../firebase';
 import { JourneyRecord, RouteMetrics, TravelMode } from '../types';
 
-const COLLECTION = 'journeys';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
 
 export async function saveJourney(params: {
   userId: string;
@@ -14,47 +12,51 @@ export async function saveJourney(params: {
   co2SavedKg?: number;
   media?: JourneyRecord['media'];
 }): Promise<string> {
-  const now = Date.now();
-  const db = getDb();
-  const docRef = await addDoc(collection(db, COLLECTION), {
-    userId: params.userId,
-    sourceText: params.sourceText,
-    destinationText: params.destinationText,
-    mode: params.mode,
-    routeId: params.routeId,
-    metrics: params.metrics,
-    co2SavedKg: params.co2SavedKg ?? 0,
-    media: params.media ?? [],
-    startedAt: now,
-    completedAt: now,
-    createdAt: serverTimestamp(),
+  const token = localStorage.getItem('token');
+  
+  const response = await fetch(`${API_URL}/journeys`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token && { 'Authorization': `Bearer ${token}` }),
+    },
+    body: JSON.stringify({
+      userId: params.userId,
+      sourceText: params.sourceText,
+      destinationText: params.destinationText,
+      mode: params.mode,
+      routeId: params.routeId,
+      metrics: params.metrics,
+      co2SavedKg: params.co2SavedKg ?? 0,
+      media: params.media ?? [],
+      startedAt: Date.now(),
+      completedAt: Date.now(),
+    }),
   });
-  return docRef.id;
+
+  if (!response.ok) {
+    throw new Error('Failed to save journey');
+  }
+
+  const data = await response.json();
+  return data.id || data.journeyId || 'saved';
 }
 
 export async function listJourneys(userId: string): Promise<JourneyRecord[]> {
-  const db = getDb();
-  const q = query(collection(db, COLLECTION), orderBy('createdAt', 'desc'));
-  const snap = await getDocs(q);
-  const results: JourneyRecord[] = [];
-  snap.forEach((docSnap) => {
-    const data = docSnap.data() as any;
-    if (data.userId !== userId) return;
-    results.push({
-      id: docSnap.id,
-      userId: data.userId,
-      sourceText: data.sourceText,
-      destinationText: data.destinationText,
-      mode: data.mode,
-      routeId: data.routeId,
-      metrics: data.metrics,
-      co2SavedKg: data.co2SavedKg,
-      startedAt: data.startedAt,
-      completedAt: data.completedAt,
-      media: data.media ?? [],
-    });
+  const token = localStorage.getItem('token');
+  
+  const response = await fetch(`${API_URL}/journeys?userId=${userId}`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token && { 'Authorization': `Bearer ${token}` }),
+    },
   });
-  return results;
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch journeys');
+  }
+
+  const data = await response.json();
+  return data.journeys || [];
 }
-
-

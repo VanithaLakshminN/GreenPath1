@@ -21,7 +21,7 @@ const Dashboard: React.FC = () => {
     (async () => {
       setLoading(true);
       try {
-        const userId = user.facebookId || user.instagramId || user.id || user.username;
+        const userId = user.id || user.username;
         const js = await listJourneys(userId);
         if (!mounted) return;
         setJourneys(js);
