@@ -8,9 +8,6 @@ interface AuthUser {
   fullName: string;
   profilePicture: string;
   email?: string;
-  accessToken?: string;
-  instagramId?: string; // Keep for backward compatibility
-  facebookId?: string; // Add Facebook support
 }
 
 interface AuthContextType {
@@ -40,7 +37,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setFirebaseUser(firebaseUser);
       if (!firebaseUser) {
         setUser(null);
-        localStorage.removeItem('instagramUser');
+        localStorage.removeItem('user');
       }
       setLoading(false);
     }) : () => {
@@ -48,19 +45,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     // Check for stored user data
-    const storedUser = localStorage.getItem('socialUser') || localStorage.getItem('instagramUser'); // Support both keys
+    const storedUser = localStorage.getItem('user');
     if (storedUser) {
       try {
         setUser(JSON.parse(storedUser));
-        // Migrate old storage key
-        if (localStorage.getItem('instagramUser')) {
-          localStorage.setItem('socialUser', storedUser);
-          localStorage.removeItem('instagramUser');
-        }
       } catch (error) {
         console.error('Error parsing stored user data:', error);
-        localStorage.removeItem('socialUser');
-        localStorage.removeItem('instagramUser');
+        localStorage.removeItem('user');
       }
     }
 
@@ -73,7 +64,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         await signInWithCustomToken(auth, customToken);
       }
       setUser(userData);
-      localStorage.setItem('socialUser', JSON.stringify(userData));
+      localStorage.setItem('user', JSON.stringify(userData));
     } catch (error) {
       console.error('Error during login:', error);
       throw error;
@@ -88,15 +79,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
       setUser(null);
       setFirebaseUser(null);
-      localStorage.removeItem('socialUser');
-      localStorage.removeItem('instagramUser'); // Clean up old key too
+      localStorage.removeItem('user');
     } catch (error) {
       console.error('Error during logout:', error);
       // Even if Firebase logout fails, clear local state
       setUser(null);
       setFirebaseUser(null);
-      localStorage.removeItem('socialUser');
-      localStorage.removeItem('instagramUser'); // Clean up old key too
+      localStorage.removeItem('user');
     }
   };
 
