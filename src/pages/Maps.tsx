@@ -62,6 +62,8 @@ const Maps: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+  const [mapLoaded, setMapLoaded] = useState(false);
+  const [mapError, setMapError] = useState<string | null>(null);
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<any | null>(null);
   const directionsRendererRef = useRef<any | null>(null);
@@ -83,29 +85,59 @@ const Maps: React.FC = () => {
   // Load Google Maps
   useEffect(() => {
     const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
-    if (!apiKey || !mapRef.current || mapInstanceRef.current) return;
+    
+    console.log('Google Maps API Key:', apiKey ? 'Present' : 'Missing');
+    
+    if (!apiKey) {
+      console.error('Google Maps API key is missing. Please add VITE_GOOGLE_MAPS_API_KEY to your .env file');
+      alert('Google Maps API key is missing. Please configure it in .env file');
+      return;
+    }
+    
+    if (!mapRef.current) {
+      console.log('Map container not ready yet');
+      return;
+    }
+    
+    if (mapInstanceRef.current) {
+      console.log('Map already initialized');
+      return;
+    }
 
     let isMounted = true;
+    console.log('Loading Google Maps API...');
+    
     loadGoogleMapsApi(apiKey)
       .then(() => {
+        console.log('Google Maps API loaded successfully');
         if (!isMounted || !mapRef.current) return;
 
         const googleMaps: any = (window as any).google;
+        if (!googleMaps || !googleMaps.maps) {
+          throw new Error('Google Maps object not available');
+        }
+        
+        console.log('Initializing map...');
         mapInstanceRef.current = new googleMaps.maps.Map(mapRef.current, {
           center: { lat: 21.1458, lng: 79.0882 }, // Center on India
           zoom: 5,
-          mapTypeControl: false,
-          streetViewControl: false,
-          fullscreenControl: false,
+          mapTypeControl: true,
+          streetViewControl: true,
+          fullscreenControl: true,
         });
 
         directionsRendererRef.current = new googleMaps.maps.DirectionsRenderer({
           suppressMarkers: false,
         });
         directionsRendererRef.current.setMap(mapInstanceRef.current);
+        console.log('Map initialized successfully');
+        setMapLoaded(true);
+        setMapError(null);
       })
       .catch((err) => {
         console.error('Google Maps failed to load:', err);
+        setMapError(err.message || 'Failed to load Google Maps');
+        alert('Failed to load Google Maps. Please check your API key and internet connection.');
       });
 
     return () => {
@@ -116,12 +148,24 @@ const Maps: React.FC = () => {
   // Helper: Geocode address to lat/lng (avoid google namespace types)
   const geocodeAddress = (address: string): Promise<any> => {
     return new Promise((resolve, reject) => {
+      if (!(window as any).google || !(window as any).google.maps) {
+        reject('Google Maps not loaded');
+        return;
+      }
+      
       const geocoder = new (window as any).google.maps.Geocoder();
+      console.log('Geocoding address:', address);
+      
       geocoder.geocode({ address }, (results: any, status: any) => {
+        console.log('Geocode status:', status);
+        
         if (status === 'OK' && results[0]) {
+          console.log('Geocode result:', results[0].formatted_address);
           resolve(results[0].geometry.location);
         } else {
-          reject(`Geocode failed: ${status}`);
+          const errorMsg = `Geocode failed for "${address}": ${status}`;
+          console.error(errorMsg);
+          reject(errorMsg);
         }
       });
     });
@@ -225,14 +269,27 @@ const Maps: React.FC = () => {
 
   // Main route finding logic
   const handleFindRoutes = async () => {
-    if (!source.trim() || !destination.trim() || !mapInstanceRef.current) return;
+    if (!source.trim() || !destination.trim()) {
+      alert('Please enter both source and destination');
+      return;
+    }
+    
+    if (!mapInstanceRef.current) {
+      alert('Map is not loaded yet. Please wait a moment and try again.');
+      return;
+    }
 
     setIsSearching(true);
+    console.log('Finding routes from', source, 'to', destination);
+    
     try {
+      console.log('Geocoding addresses...');
       const [fromLatLng, toLatLng] = await Promise.all([
         geocodeAddress(source),
         geocodeAddress(destination),
       ]);
+      
+      console.log('Geocoding successful:', { from: fromLatLng, to: toLatLng });
 
       const directionsService = new (window as any).google.maps.DirectionsService();
       const request: any = {
@@ -241,11 +298,16 @@ const Maps: React.FC = () => {
         travelMode: (window as any).google.maps.TravelMode[defaultMode],
         provideRouteAlternatives: true,
       };
+      
+      console.log('Requesting directions...');
 
       directionsService.route(request, (result: any, status: any) => {
+        console.log('Directions response:', status);
+        
         if (status === 'OK') {
           lastDirectionsResultRef.current = result;
           const routes = result?.routes ?? [];
+          console.log('Found', routes.length, 'routes');
           setAvailableRoutes(routes);
 
           // Choose greenest = shortest distance
@@ -510,13 +572,42 @@ const Maps: React.FC = () => {
               <span>Live</span>
             </div>
           </div>
-          <div className="rounded-xl h-64 md:h-96 border border-gray-200 overflow-hidden relative">
+          <div className="rounded-xl h-64 md:h-96 border border-gray-200 overflow-hidden relative bg-gray-100">
             <div ref={mapRef} className="w-full h-full"></div>
-            {isSearching && (
+            
+            {/* Loading state */}
+            {!mapLoaded && !mapError && (
+              <div className="absolute inset-0 bg-white/90 backdrop-blur-sm flex items-center justify-center">
+                <div className="text-center">
+                  <div className="spinner w-8 h-8 mx-auto mb-2"></div>
+                  <p className="text-gray-600">Loading Google Maps...</p>
+                  <p className="text-xs text-gray-500 mt-1">This may take a few seconds</p>
+                </div>
+              </div>
+            )}
+            
+            {/* Error state */}
+            {mapError && (
+              <div className="absolute inset-0 bg-red-50 flex items-center justify-center">
+                <div className="text-center p-4">
+                  <div className="text-red-600 mb-2">⚠️ Map Loading Failed</div>
+                  <p className="text-sm text-gray-700 mb-3">{mapError}</p>
+                  <button 
+                    onClick={() => window.location.reload()} 
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                  >
+                    Reload Page
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            {/* Searching state */}
+            {isSearching && mapLoaded && (
               <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center">
                 <div className="text-center">
                   <div className="spinner w-8 h-8 mx-auto mb-2"></div>
-                  <p className="text-gray-600">Loading map...</p>
+                  <p className="text-gray-600">Finding routes...</p>
                 </div>
               </div>
             )}
