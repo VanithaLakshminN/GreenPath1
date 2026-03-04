@@ -1,20 +1,18 @@
 import React, { createContext, useState, useContext, ReactNode, useEffect } from 'react';
-import { getAuthInstance } from '../firebase';
-import { User, signInWithCustomToken, signOut } from 'firebase/auth';
 
 interface AuthUser {
   id: string;
   username: string;
-  fullName: string;
-  profilePicture: string;
+  fullName?: string;
+  profilePicture?: string;
   email?: string;
+  phone?: string;
 }
 
 interface AuthContextType {
   user: AuthUser | null;
-  firebaseUser: User | null;
   loading: boolean;
-  login: (user: AuthUser, customToken?: string) => Promise<void>;
+  login: (user: AuthUser) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -22,47 +20,27 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const auth = getAuthInstance();
 
   useEffect(() => {
-    // Skip Firebase auth if not configured
-    if (!import.meta.env.VITE_FIREBASE_API_KEY) {
-      setLoading(false);
-      return;
-    }
-
-    const unsubscribe = auth.onAuthStateChanged ? auth.onAuthStateChanged((firebaseUser) => {
-      setFirebaseUser(firebaseUser);
-      if (!firebaseUser) {
-        setUser(null);
-        localStorage.removeItem('user');
-      }
-      setLoading(false);
-    }) : () => {
-      setLoading(false);
-    };
-
-    // Check for stored user data
+    // Check for stored user data and token
     const storedUser = localStorage.getItem('user');
-    if (storedUser) {
+    const token = localStorage.getItem('token');
+
+    if (storedUser && token) {
       try {
         setUser(JSON.parse(storedUser));
       } catch (error) {
         console.error('Error parsing stored user data:', error);
         localStorage.removeItem('user');
+        localStorage.removeItem('token');
       }
     }
+    setLoading(false);
+  }, []);
 
-    return unsubscribe;
-  }, [auth]);
-
-  const login = async (userData: AuthUser, customToken?: string) => {
+  const login = async (userData: AuthUser) => {
     try {
-      if (customToken) {
-        await signInWithCustomToken(auth, customToken);
-      }
       setUser(userData);
       localStorage.setItem('user', JSON.stringify(userData));
     } catch (error) {
@@ -73,24 +51,33 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const logout = async () => {
     try {
-      // Only try to sign out from Firebase if it's properly configured
-      if (import.meta.env.VITE_FIREBASE_API_KEY && typeof auth.signOut === 'function') {
-        await signOut(auth);
+      const token = localStorage.getItem('token');
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
+
+      // Call logout endpoint
+      if (token) {
+        await fetch(`${apiUrl}/auth/logout`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
       }
+
       setUser(null);
-      setFirebaseUser(null);
       localStorage.removeItem('user');
+      localStorage.removeItem('token');
     } catch (error) {
       console.error('Error during logout:', error);
-      // Even if Firebase logout fails, clear local state
+      // Clear local state even if API call fails
       setUser(null);
-      setFirebaseUser(null);
       localStorage.removeItem('user');
+      localStorage.removeItem('token');
     }
   };
 
   return (
-    <AuthContext.Provider value={{ user, firebaseUser, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );
